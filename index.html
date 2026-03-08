@@ -26,9 +26,6 @@
 
   <!-- Barre du haut -->
   <header id="barre-haut">
-    <button id="bouton-menu">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-    </button>
     <div class="titre-app">AlphaTrade</div>
     <div class="groupe-boutons-haut" id="groupe-boutons-haut">
       <button class="bouton-avatar" id="bouton-telecharger" title="Installer l'application">
@@ -40,7 +37,7 @@
     </div>
   </header>
 
-  <!-- PAGE : Marché (page principale) -->
+  <!-- Marché (page principale) -->
   <section id="page-marche" class="page actif">
 
     <!-- Onglets catégorie -->
@@ -84,14 +81,14 @@
     </a>
   </section>
 
-  <!-- PAGE : Transactions -->
+  <!-- Transactions -->
   <section id="page-transactions" class="page">
     <h1 class="titre-page">Transactions</h1>
-    <div class="sous-titre-section">Transactions en attente de vérification :</div>
+    <div class="sous-titre-section">Transactions effectuées :</div>
     <div id="liste-transactions" class="liste-transactions"></div>
   </section>
 
-  <!-- PAGE : Wallet -->
+  <!-- Wallet -->
   <section id="page-wallet" class="page">
     <h1 class="titre-page">Wallet</h1>
     <div class="bloc-wallet">
@@ -99,11 +96,11 @@
       <div class="valeur-wallet grand" id="wallet-solde">—</div>
     </div>
     <div class="bloc-wallet">
-      <div class="label-wallet">Bénéfice disponible :</div>
+      <div class="label-wallet">Bénéfice :</div>
       <div class="valeur-wallet" id="wallet-benefice">—</div>
     </div>
     <div class="bloc-wallet">
-      <div class="label-wallet">Monnaies possédées :</div>
+      <div class="label-wallet">Actifs possédées :</div>
       <div id="wallet-monnaies" class="liste-monnaies"></div>
     </div>
     <button class="btn-config-solde" id="bouton-ouvrir-config">Configurer le solde de départ</button>
@@ -124,7 +121,7 @@
 
 </div>
 
-<!-- Modale : Passer un ordre -->
+<!-- Passer un ordre -->
 <div id="modale-ordre" class="fond-modale cache">
   <div class="modale">
     <div class="modale-entete">
@@ -161,7 +158,7 @@
   </div>
 </div>
 
-<!-- Modale : Configurer le solde -->
+<!-- Configurer le solde -->
 <div id="modale-config" class="fond-modale cache">
   <div class="modale">
     <div class="modale-entete">
@@ -191,7 +188,7 @@
   </div>
 </div>
 
-<!-- Modale : Confirmer la fermeture d'une position -->
+<!-- Confirmer la fermeture d'une position -->
 <div id="modale-fermer-position" class="fond-modale cache">
   <div class="modale">
     <div class="modale-entete">

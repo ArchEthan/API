@@ -1,18 +1,17 @@
 'use strict';
 
-const NOM_CACHE = 'alphatrade-v1';
+const NOM_CACHE = 'alphatrade-v2';
 
 const RESSOURCES_STATIQUES = [
-  './',
-  './index.html',
-  './style.css',
-  './script.js',
-  './manifest.json',
-  'https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap',
+  '/API/',
+  '/API/index.html',
+  '/API/style.css',
+  '/API/script.js',
+  '/API/manifest.json',
+  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap',
   'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js',
 ];
 
-/* Installation : mise en cache des ressources statiques */
 self.addEventListener('install', (evenement) => {
   evenement.waitUntil(
     caches.open(NOM_CACHE)
@@ -21,7 +20,6 @@ self.addEventListener('install', (evenement) => {
   );
 });
 
-/* Activation : suppression des anciens caches */
 self.addEventListener('activate', (evenement) => {
   evenement.waitUntil(
     caches.keys()
@@ -32,19 +30,15 @@ self.addEventListener('activate', (evenement) => {
   );
 });
 
-/* Interception des requêtes réseau */
 self.addEventListener('fetch', (evenement) => {
   const url = new URL(evenement.request.url);
-
   if (evenement.request.method !== 'GET') return;
 
-  /* API CoinGecko : réseau en priorité, cache en secours */
   if (url.hostname.includes('coingecko.com')) {
     evenement.respondWith(reseauEnPrioriteAvecDelai(evenement.request, 8000));
     return;
   }
 
-  /* Polices et bibliothèques CDN : cache en priorité */
   if (url.hostname.includes('fonts.googleapis.com') ||
       url.hostname.includes('fonts.gstatic.com') ||
       url.hostname.includes('cdnjs.cloudflare.com')) {
@@ -52,7 +46,6 @@ self.addEventListener('fetch', (evenement) => {
     return;
   }
 
-  /* Fichiers de l'application : cache puis mise à jour en arrière-plan */
   if (url.origin === location.origin) {
     evenement.respondWith(cacheEtMiseAJour(evenement.request));
     return;
@@ -61,7 +54,6 @@ self.addEventListener('fetch', (evenement) => {
   evenement.respondWith(reseauEnPriorite(evenement.request));
 });
 
-/* Stratégie : cache en priorité */
 async function cacheEnPriorite(requete) {
   const enCache = await caches.match(requete);
   if (enCache) return enCache;
@@ -77,7 +69,6 @@ async function cacheEnPriorite(requete) {
   }
 }
 
-/* Stratégie : réseau en priorité */
 async function reseauEnPriorite(requete) {
   try {
     const reponse = await fetch(requete);
@@ -89,17 +80,14 @@ async function reseauEnPriorite(requete) {
   } catch (e) {
     const enCache = await caches.match(requete);
     return enCache || new Response(JSON.stringify({ erreur: 'hors ligne' }), {
-      status: 503,
-      headers: { 'Content-Type': 'application/json' }
+      status: 503, headers: { 'Content-Type': 'application/json' }
     });
   }
 }
 
-/* Stratégie : réseau en priorité avec délai maximum */
 async function reseauEnPrioriteAvecDelai(requete, delai) {
   const controleur = new AbortController();
   const minuterie = setTimeout(() => controleur.abort(), delai);
-
   try {
     const reponse = await fetch(requete, { signal: controleur.signal });
     clearTimeout(minuterie);
@@ -113,28 +101,21 @@ async function reseauEnPrioriteAvecDelai(requete, delai) {
     const enCache = await caches.match(requete);
     if (enCache) return enCache;
     return new Response(JSON.stringify({ erreur: 'hors ligne', prix: {} }), {
-      status: 503,
-      headers: { 'Content-Type': 'application/json' }
+      status: 503, headers: { 'Content-Type': 'application/json' }
     });
   }
 }
 
-/* Stratégie : cache immédiat, mise à jour en arrière-plan */
 async function cacheEtMiseAJour(requete) {
   const cache = await caches.open(NOM_CACHE);
   const enCache = await cache.match(requete);
-
   const promesseReseau = fetch(requete).then(reponse => {
     if (reponse.ok) cache.put(requete, reponse.clone());
     return reponse;
   }).catch(() => null);
-
   return enCache || (await promesseReseau) || new Response('Hors ligne', { status: 503 });
 }
 
-/* Réception de messages depuis l'application */
 self.addEventListener('message', (evenement) => {
-  if (evenement.data?.type === 'IGNORER_ATTENTE') {
-    self.skipWaiting();
-  }
+  if (evenement.data?.type === 'IGNORER_ATTENTE') self.skipWaiting();
 });

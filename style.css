@@ -115,6 +115,7 @@ html, body {
   cursor: pointer;
 }
 
+#bouton-menu, .bouton-avatar {
   width: 36px; height: 36px;
   display: flex; align-items: center; justify-content: center;
   background: none; border: none; cursor: pointer;
