@@ -1,1 +1,41 @@
-
+{
+  "name": "AlphaTrade — Simulateur de Trading",
+  "short_name": "AlphaTrade",
+  "description": "Simulateur de trading crypto, forex et matières premières avec solde fictif",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#070B14",
+  "theme_color": "#0A0E1A",
+  "orientation": "portrait-primary",
+  "categories": ["finance", "utilities"],
+  "lang": "fr",
+  "icons": [
+    {
+      "src": "icones/icone-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icones/icone-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Trader",
+      "short_name": "Trader",
+      "url": "./index.html#trader",
+      "icons": [{ "src": "icones/icone-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Portefeuille",
+      "short_name": "Portefeuille",
+      "url": "./index.html#portefeuille",
+      "icons": [{ "src": "icones/icone-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

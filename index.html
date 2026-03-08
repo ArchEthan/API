@@ -1,12 +1,233 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="fr">
-  <head>
-    <meta charset="utf-8">
-    <title></title>
-    <link rel="stylesheet" href="style.css">
-    <script src="script.js"></script>
-  </head>
-  <body>
-    
-  </body>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#ffffff" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="AlphaTrade" />
+  <title>AlphaTrade</title>
+  <link rel="manifest" href="manifest.json" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- Écran de chargement -->
+<div id="ecran-chargement">
+  <div class="logo-chargement">AlphaTrade</div>
+  <div class="roue-chargement"></div>
+</div>
+
+<!-- Application -->
+<div id="application" class="cache">
+
+  <!-- Barre du haut -->
+  <header id="barre-haut">
+    <button id="bouton-menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+    <div class="titre-app">AlphaTrade</div>
+    <div class="groupe-boutons-haut" id="groupe-boutons-haut">
+      <button class="bouton-avatar" id="bouton-telecharger" title="Installer l'application">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      </button>
+      <button class="bouton-avatar" id="bouton-config">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- PAGE : Marché (page principale) -->
+  <section id="page-marche" class="page actif">
+
+    <!-- Onglets catégorie -->
+    <div class="onglets-marche">
+      <button class="onglet actif" data-cat="crypto">Crypto</button>
+      <button class="onglet" data-cat="forex">Forex</button>
+      <button class="onglet" data-cat="actions">Actions</button>
+    </div>
+
+    <!-- Barre de recherche -->
+    <div class="zone-recherche">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="champ-recherche" placeholder="Rechercher une crypto" />
+    </div>
+
+    <!-- Actif sélectionné -->
+    <div id="zone-actif">
+      <div class="nom-actif" id="nom-actif">BTCUSDT</div>
+      <div class="prix-actif" id="prix-actif">—</div>
+      <div class="variation-actif" id="variation-actif"></div>
+
+      <!-- Graphique compact -->
+      <div class="conteneur-graphique">
+        <canvas id="graphique-principal"></canvas>
+      </div>
+
+      <!-- Boutons Acheter / Vendre -->
+      <div class="boutons-trade">
+        <button class="btn-acheter" id="bouton-acheter">Acheter</button>
+        <button class="btn-vendre" id="bouton-vendre">Vendre</button>
+      </div>
+    </div>
+
+    <!-- Liste des actifs -->
+    <div id="liste-actifs" class="liste-actifs"></div>
+
+    <!-- Attribution CoinGecko -->
+    <a class="attribution" href="https://www.coingecko.com" target="_blank" rel="noopener">
+      <img src="https://static.coingecko.com/s/coingecko-logo-d13d6bcceddbb003f146b33c2f7e8193d72b93bb02229aa0c83734f2fb6a56bb.png" alt="CoinGecko" height="14" />
+      <span>Données fournies par CoinGecko</span>
+    </a>
+  </section>
+
+  <!-- PAGE : Transactions -->
+  <section id="page-transactions" class="page">
+    <h1 class="titre-page">Transactions</h1>
+    <div class="sous-titre-section">Transactions en attente de vérification :</div>
+    <div id="liste-transactions" class="liste-transactions"></div>
+  </section>
+
+  <!-- PAGE : Wallet -->
+  <section id="page-wallet" class="page">
+    <h1 class="titre-page">Wallet</h1>
+    <div class="bloc-wallet">
+      <div class="label-wallet">Mon solde :</div>
+      <div class="valeur-wallet grand" id="wallet-solde">—</div>
+    </div>
+    <div class="bloc-wallet">
+      <div class="label-wallet">Bénéfice disponible :</div>
+      <div class="valeur-wallet" id="wallet-benefice">—</div>
+    </div>
+    <div class="bloc-wallet">
+      <div class="label-wallet">Monnaies possédées :</div>
+      <div id="wallet-monnaies" class="liste-monnaies"></div>
+    </div>
+    <button class="btn-config-solde" id="bouton-ouvrir-config">Configurer le solde de départ</button>
+  </section>
+
+  <!-- Navigation bas de page -->
+  <nav id="nav-bas">
+    <button class="btn-nav actif" data-page="marche">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    </button>
+    <button class="btn-nav" data-page="transactions">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+    </button>
+    <button class="btn-nav" data-page="wallet">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+    </button>
+  </nav>
+
+</div>
+
+<!-- Modale : Passer un ordre -->
+<div id="modale-ordre" class="fond-modale cache">
+  <div class="modale">
+    <div class="modale-entete">
+      <h3 id="titre-modale-ordre">Acheter</h3>
+      <button class="modale-fermer" data-modale="modale-ordre">✕</button>
+    </div>
+    <div class="modale-corps">
+      <div class="info-ordre">
+        <span id="ordre-actif-nom">—</span>
+        <span id="ordre-actif-prix" class="prix-ordre">—</span>
+      </div>
+      <div class="groupe-champ">
+        <label>Montant (USD)</label>
+        <div class="champ-saisie">
+          <span>$</span>
+          <input type="number" id="montant-ordre" placeholder="0.00" min="1" step="any" />
+        </div>
+        <div class="montants-rapides">
+          <button class="btn-rapide" data-pct="10">10%</button>
+          <button class="btn-rapide" data-pct="25">25%</button>
+          <button class="btn-rapide" data-pct="50">50%</button>
+          <button class="btn-rapide" data-pct="100">MAX</button>
+        </div>
+      </div>
+      <div class="resume-ordre">
+        <div><span>Quantité estimée</span><span id="quantite-estimee">—</span></div>
+        <div><span>Solde disponible</span><span id="solde-disponible">—</span></div>
+        <div><span>Commission</span><span>0,1%</span></div>
+      </div>
+    </div>
+    <div class="modale-pied">
+      <button id="bouton-confirmer-ordre" class="btn-confirmer">Confirmer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modale : Configurer le solde -->
+<div id="modale-config" class="fond-modale cache">
+  <div class="modale">
+    <div class="modale-entete">
+      <h3>Configurer le solde</h3>
+      <button class="modale-fermer" data-modale="modale-config">✕</button>
+    </div>
+    <div class="modale-corps">
+      <p>Choisissez un montant fictif pour démarrer.</p>
+      <div class="montants-preset">
+        <button class="btn-preset" data-montant="1000">1 000 $</button>
+        <button class="btn-preset" data-montant="5000">5 000 $</button>
+        <button class="btn-preset actif" data-montant="10000">10 000 $</button>
+        <button class="btn-preset" data-montant="50000">50 000 $</button>
+        <button class="btn-preset" data-montant="100000">100 000 $</button>
+      </div>
+      <div class="groupe-champ">
+        <label>Montant personnalisé</label>
+        <div class="champ-saisie">
+          <span>$</span>
+          <input type="number" id="montant-custom" placeholder="10000" min="100" />
+        </div>
+      </div>
+    </div>
+    <div class="modale-pied">
+      <button id="bouton-appliquer" class="btn-confirmer">Appliquer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modale : Confirmer la fermeture d'une position -->
+<div id="modale-fermer-position" class="fond-modale cache">
+  <div class="modale">
+    <div class="modale-entete">
+      <h3>Fermer la position</h3>
+      <button class="modale-fermer" data-modale="modale-fermer-position">✕</button>
+    </div>
+    <div class="modale-corps">
+      <div class="resume-ordre">
+        <div><span>Actif</span><span id="fp-actif">—</span></div>
+        <div><span>Quantité</span><span id="fp-quantite">—</span></div>
+        <div><span>Prix d'entrée</span><span id="fp-entree">—</span></div>
+        <div><span>Prix actuel</span><span id="fp-actuel">—</span></div>
+        <div><span>P&L estimé</span><span id="fp-pnl">—</span></div>
+      </div>
+    </div>
+    <div class="modale-pied deux-col">
+      <button class="btn-annuler" data-modale="modale-fermer-position">Annuler</button>
+      <button id="bouton-executer-fermeture" class="btn-confirmer">Confirmer</button>
+    </div>
+  </div>
+</div>
+
+<div id="conteneur-notifications"></div>
+
+<!-- Bannière installation PWA -->
+<div id="banniere-installation" class="banniere-installation cache">
+  <div>
+    <strong>Installer AlphaTrade</strong>
+    <p>Accédez à l'app depuis votre écran d'accueil</p>
+  </div>
+  <div class="actions-banniere">
+    <button id="bouton-installer" class="btn-confirmer petit">Installer</button>
+    <button id="bouton-ignorer">Plus tard</button>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
 </html>
