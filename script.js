@@ -22,7 +22,7 @@ const etat = {
 };
 
 const URL_API = 'https://api.coingecko.com/api/v3';
-const COMMISSION = 0.0005;
+const COMMISSION = 0.001;
 
 /* =========================================
    Stockage local
@@ -465,7 +465,7 @@ function confirmerOrdre() {
 
   const prix = actif.prix || etat.cachePrix[actif.id];
   const quantite = montant / prix;
-  const commission = montant * COMMISSION;
+  const commission =2 * ( montant * COMMISSION );
 
   if (etat.typeOrdre === 'achat') {
     if (montant + commission > etat.solde) return notifier('Solde insuffisant', 'erreur');
