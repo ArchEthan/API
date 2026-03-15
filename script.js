@@ -956,19 +956,31 @@ function configurerPWA() {
    Service Worker
    ===================================================== */
 function enregistrerSW() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js', { scope: './' })
-      .then(reg => {
-        reg.addEventListener('updatefound', () => {
-          reg.installing?.addEventListener('statechange', function () {
-            if (this.state === 'installed' && navigator.serviceWorker.controller) {
-              this.postMessage({ type: 'SKIP_WAITING' });
-            }
-          });
-        });
-      })
-      .catch(e => console.warn('SW:', e));
+  if (!('serviceWorker' in navigator)) {
+    console.warn('Service Worker non supporté');
+    return;
   }
+  // Calcul automatique du chemin — fonctionne sur Netlify, GitHub Pages, sous-dossier
+  const swUrl = new URL('./sw.js', location.href).href;
+  const scope = new URL('./',      location.href).href;
+
+  navigator.serviceWorker.register(swUrl, { scope })
+    .then(reg => {
+      console.log('✅ SW enregistré — scope:', reg.scope);
+      reg.addEventListener('updatefound', () => {
+        const sw = reg.installing;
+        sw?.addEventListener('statechange', function () {
+          console.log('SW état:', this.state);
+          if (this.state === 'installed' && navigator.serviceWorker.controller) {
+            this.postMessage({ type: 'SKIP_WAITING' });
+          }
+        });
+      });
+    })
+    .catch(e => console.error('❌ SW erreur:', e.message));
+
+  // Recharger si le SW prend le contrôle après mise à jour
+  navigator.serviceWorker.addEventListener('controllerchange', () => location.reload());
 }
 
 /* =====================================================
