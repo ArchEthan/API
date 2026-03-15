@@ -1,20 +1,20 @@
 'use strict';
 
 /* =====================================================
-   CLÉS API — remplacez par les vôtres
+   CLÉ API — mettez votre clé Twelve Data ici
+   Inscription gratuite : https://twelvedata.com
+   (800 requêtes/jour, forex + actions + historique)
    ===================================================== */
 const CLES = {
-  exchangerate: 'YOUR_EXCHANGERATE_API_KEY', // https://www.exchangerate-api.com
-  finnhub: 'YOUR_FINNHUB_API_KEY',           // https://finnhub.io
+  twelvedata: 'YOUR_TWELVEDATA_API_KEY',
 };
 
 /* =====================================================
    URLs de base
    ===================================================== */
 const API = {
-  coingecko:    'https://api.coingecko.com/api/v3',
-  exchangerate: `https://v6.exchangerate-api.com/v6/${CLES.exchangerate}`,
-  finnhub:      'https://finnhub.io/api/v1',
+  coingecko:  'https://api.coingecko.com/api/v3',
+  twelvedata: 'https://api.twelvedata.com',
 };
 
 const COMMISSION = 0.001;
@@ -32,13 +32,12 @@ const etat = {
   categorieActuelle: 'crypto',
   typeOrdre: 'achat',
   periodeActuelle: 30,
-  cache: {},       // { cle: { donnees, ts } }
+  cache: {},
   cachePrix: {},
   marches: { crypto: [], forex: [], actions: [] },
   indexFermeture: null,
   promptInstallation: null,
   graphique: null,
-  intervalMaj: null,
 };
 
 /* =====================================================
@@ -46,54 +45,87 @@ const etat = {
    ===================================================== */
 function sauvegarder() {
   try {
-    localStorage.setItem('alphatrade_v2', JSON.stringify({
+    localStorage.setItem('alphatrade_v3', JSON.stringify({
       solde: etat.solde,
       soldeInitial: etat.soldeInitial,
       positions: etat.positions,
       historique: etat.historique,
     }));
-  } catch(_) {}
+  } catch (_) {}
 }
 
 function charger() {
   try {
-    const raw = localStorage.getItem('alphatrade_v2');
+    const raw = localStorage.getItem('alphatrade_v3');
     if (!raw) return;
     const d = JSON.parse(raw);
     etat.solde        = d.solde        ?? 10000;
     etat.soldeInitial = d.soldeInitial ?? 10000;
     etat.positions    = d.positions    ?? [];
     etat.historique   = d.historique   ?? [];
-  } catch(_) {}
+  } catch (_) {}
 }
 
 /* =====================================================
-   Cache HTTP générique
+   Cache HTTP générique avec TTL
    ===================================================== */
 async function fetchCache(url, cle, ttl = 60000) {
   const now = Date.now();
   const hit = etat.cache[cle];
   if (hit && now - hit.ts < ttl) return hit.donnees;
 
-  const ctrl = new AbortController();
+  const ctrl  = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 10000);
-
   try {
-    const rep = await fetch(url, {
-      headers: { Accept: 'application/json' },
-      signal: ctrl.signal,
-    });
+    const rep = await fetch(url, { headers: { Accept: 'application/json' }, signal: ctrl.signal });
     clearTimeout(timer);
     if (!rep.ok) throw new Error(`HTTP ${rep.status}`);
     const donnees = await rep.json();
     etat.cache[cle] = { donnees, ts: now };
     return donnees;
-  } catch(e) {
+  } catch (e) {
     clearTimeout(timer);
-    console.warn(`fetchCache [${cle}]:`, e.message);
-    if (hit) return hit.donnees;   // fallback cache périmé
+    if (hit) return hit.donnees; // fallback cache périmé
     throw e;
   }
+}
+
+/* =====================================================
+   Générateur pseudo-aléatoire déterministe (seed)
+   Permet d'avoir un graphique fallback STABLE
+   pour un actif donné — il ne change pas à chaque clic
+   ===================================================== */
+function seedRng(seed) {
+  let s = seed;
+  return function () {
+    s = (s * 1664525 + 1013904223) & 0xffffffff;
+    return (s >>> 0) / 0xffffffff;
+  };
+}
+
+function strToSeed(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (Math.imul(31, hash) + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+/* Génère un historique simulé STABLE basé sur l'id de l'actif */
+function genererHistoSimule(id, prixActuel, jours, volatilite = 0.02) {
+  const rng = seedRng(strToSeed(id + '_' + jours));
+  const nb  = jours <= 1 ? 48 : jours <= 7 ? jours * 24 : jours * 2;
+
+  // On remonte dans le temps depuis le prix actuel
+  const inversePrix = [prixActuel];
+  for (let i = 1; i < nb; i++) {
+    inversePrix.push(Math.max(0.0001, inversePrix[i - 1] * (1 + (rng() - 0.5) * volatilite)));
+  }
+  const prix = inversePrix.reverse();
+
+  const pas   = (jours * 86400000) / nb;
+  const debut = Date.now() - jours * 86400000;
+  return prix.map((p, i) => ({ temps: new Date(debut + i * pas), prix: p }));
 }
 
 /* =====================================================
@@ -105,43 +137,37 @@ function fmt$(n, dec = 2) {
     minimumFractionDigits: dec, maximumFractionDigits: dec,
   }) + '$';
 }
-
 function fmtQte(n) {
   if (n == null || isNaN(n)) return '—';
   return n >= 1
     ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
     : Number(n).toPrecision(4);
 }
-
 function fmtPct(n) {
   if (n == null || isNaN(n)) return '';
   return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
 }
-
 function fmtDate(ts) {
   return new Date(ts).toLocaleDateString('fr-FR', {
     day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
   });
 }
-
 function classeVar(v) { return v >= 0 ? 'hausse' : 'baisse'; }
-
-function decCryptos(p) { return p < 0.01 ? 6 : p < 1 ? 4 : 2; }
+function decPrix(p)   { return p < 0.01 ? 6 : p < 1 ? 4 : 2; }
 
 /* =====================================================
-   Notifications
+   Notifications / Modales
    ===================================================== */
 function notif(msg, type = 'info') {
-  const c = document.getElementById('conteneur-notifications');
+  const c  = document.getElementById('conteneur-notifications');
   const el = document.createElement('div');
-  el.className = `notification ${type}`;
+  el.className  = `notification ${type}`;
   el.textContent = msg;
   c.appendChild(el);
   setTimeout(() => el.remove(), 3300);
 }
-
-function ouvrirModale(id)  { document.getElementById(id)?.classList.remove('cache'); }
-function fermerModale(id)  { document.getElementById(id)?.classList.add('cache'); }
+function ouvrirModale(id) { document.getElementById(id)?.classList.remove('cache'); }
+function fermerModale(id) { document.getElementById(id)?.classList.add('cache'); }
 
 /* =====================================================
    Navigation
@@ -158,7 +184,7 @@ function allerVers(page) {
 }
 
 /* =====================================================
-   ── API COINGECKO ──
+   ── CoinGecko — Crypto ──
    ===================================================== */
 async function chargerCryptos() {
   const url = `${API.coingecko}/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=50&page=1&sparkline=false&price_change_percentage=24h`;
@@ -169,12 +195,12 @@ async function chargerCryptos() {
   return donnees
     .filter(c => c.current_price > 0)
     .map(c => ({
-      id: c.id,
-      symbole: (c.symbol || '').toUpperCase() + 'USDT',
-      nom: c.name,
-      prix: c.current_price,
+      id:        c.id,
+      symbole:   (c.symbol || '').toUpperCase() + 'USDT',
+      nom:       c.name,
+      prix:      c.current_price,
       variation: c.price_change_percentage_24h || 0,
-      icone: c.image || '📊',
+      icone:     c.image || '📊',
       categorie: 'crypto',
     }));
 }
@@ -182,179 +208,175 @@ async function chargerCryptos() {
 async function chargerHistoCrypto(idCoin, jours) {
   const url = `${API.coingecko}/coins/${idCoin}/market_chart?vs_currency=usd&days=${jours}`;
   const donnees = await fetchCache(url, `cg_hist_${idCoin}_${jours}`, 120000);
-  if (!donnees?.prices?.length) throw new Error('Pas de données histogramme');
+  if (!donnees?.prices?.length) throw new Error('Pas de données');
   return donnees.prices
     .filter(([, p]) => p > 0)
     .map(([ts, p]) => ({ temps: new Date(ts), prix: p }));
 }
 
 /* =====================================================
-   ── API EXCHANGERATE ──
+   ── Twelve Data — Forex ──
    ===================================================== */
 const PAIRES_FOREX = [
-  { id: 'eurusd', symbole: 'EUR/USD', nom: 'Euro / Dollar',      base: 'EUR', quote: 'USD' },
-  { id: 'gbpusd', symbole: 'GBP/USD', nom: 'Livre / Dollar',     base: 'GBP', quote: 'USD' },
-  { id: 'usdjpy', symbole: 'USD/JPY', nom: 'Dollar / Yen',       base: 'USD', quote: 'JPY' },
-  { id: 'usdchf', symbole: 'USD/CHF', nom: 'Dollar / Franc CH',  base: 'USD', quote: 'CHF' },
-  { id: 'audusd', symbole: 'AUD/USD', nom: 'AUD / Dollar',       base: 'AUD', quote: 'USD' },
-  { id: 'usdcad', symbole: 'USD/CAD', nom: 'Dollar / CAD',       base: 'USD', quote: 'CAD' },
-  { id: 'nzdusd', symbole: 'NZD/USD', nom: 'NZD / Dollar',       base: 'NZD', quote: 'USD' },
-  { id: 'eurgbp', symbole: 'EUR/GBP', nom: 'Euro / Livre',       base: 'EUR', quote: 'GBP' },
+  { id: 'eurusd', symbole: 'EUR/USD', nom: 'Euro / Dollar',     td: 'EUR/USD' },
+  { id: 'gbpusd', symbole: 'GBP/USD', nom: 'Livre / Dollar',    td: 'GBP/USD' },
+  { id: 'usdjpy', symbole: 'USD/JPY', nom: 'Dollar / Yen',      td: 'USD/JPY' },
+  { id: 'usdchf', symbole: 'USD/CHF', nom: 'Dollar / Franc CH', td: 'USD/CHF' },
+  { id: 'audusd', symbole: 'AUD/USD', nom: 'AUD / Dollar',      td: 'AUD/USD' },
+  { id: 'usdcad', symbole: 'USD/CAD', nom: 'Dollar / CAD',      td: 'USD/CAD' },
+  { id: 'nzdusd', symbole: 'NZD/USD', nom: 'NZD / Dollar',      td: 'NZD/USD' },
+  { id: 'eurgbp', symbole: 'EUR/GBP', nom: 'Euro / Livre',      td: 'EUR/GBP' },
 ];
 
-// Taux de référence pour les calculs de variation et historique
-const TAUX_REF = {
-  EUR: 1.085, GBP: 1.265, USD: 1, JPY: 0.00667,
-  CHF: 1.115, AUD: 0.652, CAD: 0.733, NZD: 0.598,
+// Prix de référence pour le fallback
+const PRIX_REF_FOREX = {
+  eurusd: 1.085, gbpusd: 1.265, usdjpy: 149.5, usdchf: 0.897,
+  audusd: 0.652, usdcad: 1.364, nzdusd: 0.598, eurgbp: 0.858,
 };
 
 async function chargerForex() {
-  // On récupère les taux depuis USD via l'API ExchangeRate
-  if (CLES.exchangerate && CLES.exchangerate !== 'YOUR_EXCHANGERATE_API_KEY') {
-    try {
-      const url = `${API.exchangerate}/latest/USD`;
-      const data = await fetchCache(url, 'er_usd', 300000);
-
-      if (data.result === 'success' && data.conversion_rates) {
-        const rates = data.conversion_rates;
-        return PAIRES_FOREX.map(p => {
-          // Calcule le prix de la paire (base en USD / quote en USD)
-          const baseEnUsd   = p.base === 'USD'   ? 1 : 1 / (rates[p.base]   || 1);
-          const quoteEnUsd  = p.quote === 'USD'  ? 1 : 1 / (rates[p.quote]  || 1);
-          const prix = baseEnUsd / (quoteEnUsd > 0 ? quoteEnUsd : 1);
-
-          // Variation simulée légère (l'API ExchangeRate free ne donne pas de variation 24h)
-          const variation = (Math.random() - 0.48) * 1.2;
-
-          etat.cachePrix[p.id] = prix;
-          return {
-            id: p.id, symbole: p.symbole, nom: p.nom,
-            prix, variation, icone: '💱', categorie: 'forex',
-          };
-        });
-      }
-    } catch(e) {
-      console.warn('ExchangeRate API error:', e.message);
-    }
+  if (!CLES.twelvedata || CLES.twelvedata === 'YOUR_TWELVEDATA_API_KEY') {
+    return fallbackForex();
   }
 
-  // Fallback : données simulées autour de valeurs réalistes
+  try {
+    // Twelve Data accepte plusieurs symboles en une seule requête (économie de quota)
+    const symbols = PAIRES_FOREX.map(p => p.td).join(',');
+    const url = `${API.twelvedata}/price?symbol=${encodeURIComponent(symbols)}&apikey=${CLES.twelvedata}`;
+    const data = await fetchCache(url, 'td_forex_prix', 60000);
+
+    // Récupérer aussi la variation 24h
+    const urlChange = `${API.twelvedata}/percent_change?symbol=${encodeURIComponent(symbols)}&interval=1day&apikey=${CLES.twelvedata}`;
+    const dataChange = await fetchCache(urlChange, 'td_forex_change', 60000).catch(() => ({}));
+
+    return PAIRES_FOREX.map(p => {
+      // Twelve Data retourne un objet par symbole si multi, sinon direct
+      const raw    = data[p.td] || data;
+      const rawChg = dataChange[p.td] || dataChange;
+      const prix   = parseFloat(raw?.price) || PRIX_REF_FOREX[p.id];
+      const variation = parseFloat(rawChg?.percent_change) || 0;
+      etat.cachePrix[p.id] = prix;
+      return { id: p.id, symbole: p.symbole, nom: p.nom, prix, variation, icone: '💱', categorie: 'forex' };
+    });
+  } catch (e) {
+    console.warn('Twelve Data forex error:', e.message);
+    return fallbackForex();
+  }
+}
+
+function fallbackForex() {
   return PAIRES_FOREX.map(p => {
-    const baseEnUsd  = TAUX_REF[p.base]  || 1;
-    const quoteEnUsd = TAUX_REF[p.quote] || 1;
-    const prixBase   = baseEnUsd / quoteEnUsd;
-    const prix = prixBase * (1 + (Math.random() - 0.5) * 0.003);
-    const variation = (Math.random() - 0.48) * 1.2;
+    // Prix stable depuis le cache si dispo, sinon référence
+    const prix = etat.cachePrix[p.id] || PRIX_REF_FOREX[p.id];
     etat.cachePrix[p.id] = prix;
-    return {
-      id: p.id, symbole: p.symbole, nom: p.nom,
-      prix, variation, icone: '💱', categorie: 'forex',
-    };
+    return { id: p.id, symbole: p.symbole, nom: p.nom, prix, variation: 0, icone: '💱', categorie: 'forex' };
   });
 }
 
-async function chargerHistoForex(pairId, jours) {
-  // ExchangeRate free ne fournit pas d'historique → simulé à partir du prix actuel
-  const prixActuel = etat.cachePrix[pairId] || 1;
-  return genererHistoSimule(prixActuel, jours, 0.002);
+async function chargerHistoForex(id, jours) {
+  const paire = PAIRES_FOREX.find(p => p.id === id);
+  if (!paire) return genererHistoSimule(id, etat.cachePrix[id] || 1, jours, 0.003);
+
+  if (!CLES.twelvedata || CLES.twelvedata === 'YOUR_TWELVEDATA_API_KEY') {
+    return genererHistoSimule(id, etat.cachePrix[id] || PRIX_REF_FOREX[id], jours, 0.003);
+  }
+
+  try {
+    const interval   = jours <= 1 ? '15min' : jours <= 7 ? '1h' : '1day';
+    const outputsize = jours <= 1 ? 96 : jours <= 7 ? 168 : jours;
+    const url = `${API.twelvedata}/time_series?symbol=${encodeURIComponent(paire.td)}&interval=${interval}&outputsize=${outputsize}&apikey=${CLES.twelvedata}`;
+    const data = await fetchCache(url, `td_forex_hist_${id}_${jours}`, 180000);
+
+    if (data.status === 'ok' && data.values?.length) {
+      return data.values
+        .reverse()
+        .map(v => ({ temps: new Date(v.datetime), prix: parseFloat(v.close) }));
+    }
+    throw new Error(data.message || 'Données invalides');
+  } catch (e) {
+    console.warn('Twelve Data forex historique:', e.message);
+    return genererHistoSimule(id, etat.cachePrix[id] || PRIX_REF_FOREX[id], jours, 0.003);
+  }
 }
 
 /* =====================================================
-   ── API FINNHUB ──
+   ── Twelve Data — Actions ──
    ===================================================== */
 const SYMBOLES_ACTIONS = [
-  { id: 'aapl',  symbole: 'AAPL',  nom: 'Apple Inc.',      fh: 'AAPL'  },
-  { id: 'msft',  symbole: 'MSFT',  nom: 'Microsoft',       fh: 'MSFT'  },
-  { id: 'googl', symbole: 'GOOGL', nom: 'Alphabet',        fh: 'GOOGL' },
-  { id: 'amzn',  symbole: 'AMZN',  nom: 'Amazon',          fh: 'AMZN'  },
-  { id: 'nvda',  symbole: 'NVDA',  nom: 'NVIDIA',          fh: 'NVDA'  },
-  { id: 'meta',  symbole: 'META',  nom: 'Meta Platforms',  fh: 'META'  },
-  { id: 'tsla',  symbole: 'TSLA',  nom: 'Tesla',           fh: 'TSLA'  },
-  { id: 'nflx',  symbole: 'NFLX',  nom: 'Netflix',         fh: 'NFLX'  },
+  { id: 'aapl',  symbole: 'AAPL',  nom: 'Apple Inc.',     td: 'AAPL'  },
+  { id: 'msft',  symbole: 'MSFT',  nom: 'Microsoft',      td: 'MSFT'  },
+  { id: 'googl', symbole: 'GOOGL', nom: 'Alphabet',       td: 'GOOGL' },
+  { id: 'amzn',  symbole: 'AMZN',  nom: 'Amazon',         td: 'AMZN'  },
+  { id: 'nvda',  symbole: 'NVDA',  nom: 'NVIDIA',         td: 'NVDA'  },
+  { id: 'meta',  symbole: 'META',  nom: 'Meta Platforms', td: 'META'  },
+  { id: 'tsla',  symbole: 'TSLA',  nom: 'Tesla',          td: 'TSLA'  },
+  { id: 'nflx',  symbole: 'NFLX',  nom: 'Netflix',        td: 'NFLX'  },
 ];
 
-// Prix de référence en fallback
 const PRIX_REF_ACTIONS = {
-  AAPL: 175, MSFT: 410, GOOGL: 160, AMZN: 185,
-  NVDA: 870, META: 480, TSLA: 175, NFLX: 620,
+  aapl: 175, msft: 415, googl: 160, amzn: 185,
+  nvda: 870, meta: 490, tsla: 175,  nflx: 630,
 };
 
 async function chargerActions() {
-  if (CLES.finnhub && CLES.finnhub !== 'YOUR_FINNHUB_API_KEY') {
-    try {
-      // On charge les quotes en parallèle (max 8 requêtes)
-      const promesses = SYMBOLES_ACTIONS.map(async a => {
-        try {
-          const url = `${API.finnhub}/quote?symbol=${a.fh}&token=${CLES.finnhub}`;
-          const data = await fetchCache(url, `fh_quote_${a.fh}`, 60000);
-          const prix = data.c || PRIX_REF_ACTIONS[a.fh] || 100;
-          const variation = data.dp || ((Math.random() - 0.47) * 2);
-          etat.cachePrix[a.id] = prix;
-          return { ...a, prix, variation, icone: '📈', categorie: 'actions' };
-        } catch {
-          const prix = PRIX_REF_ACTIONS[a.fh] || 100;
-          etat.cachePrix[a.id] = prix;
-          return {
-            ...a, prix,
-            variation: (Math.random() - 0.47) * 2,
-            icone: '📈', categorie: 'actions',
-          };
-        }
-      });
-      return await Promise.all(promesses);
-    } catch(e) {
-      console.warn('Finnhub error:', e.message);
-    }
+  if (!CLES.twelvedata || CLES.twelvedata === 'YOUR_TWELVEDATA_API_KEY') {
+    return fallbackActions();
   }
 
-  // Fallback simulé
+  try {
+    const symbols = SYMBOLES_ACTIONS.map(a => a.td).join(',');
+    const url = `${API.twelvedata}/price?symbol=${encodeURIComponent(symbols)}&apikey=${CLES.twelvedata}`;
+    const data = await fetchCache(url, 'td_actions_prix', 60000);
+
+    const urlChange = `${API.twelvedata}/percent_change?symbol=${encodeURIComponent(symbols)}&interval=1day&apikey=${CLES.twelvedata}`;
+    const dataChange = await fetchCache(urlChange, 'td_actions_change', 60000).catch(() => ({}));
+
+    return SYMBOLES_ACTIONS.map(a => {
+      const raw    = data[a.td]    || data;
+      const rawChg = dataChange[a.td] || dataChange;
+      const prix   = parseFloat(raw?.price) || PRIX_REF_ACTIONS[a.id];
+      const variation = parseFloat(rawChg?.percent_change) || 0;
+      etat.cachePrix[a.id] = prix;
+      return { id: a.id, symbole: a.symbole, nom: a.nom, prix, variation, icone: '📈', categorie: 'actions' };
+    });
+  } catch (e) {
+    console.warn('Twelve Data actions error:', e.message);
+    return fallbackActions();
+  }
+}
+
+function fallbackActions() {
   return SYMBOLES_ACTIONS.map(a => {
-    const base = PRIX_REF_ACTIONS[a.fh] || 100;
-    const prix = base * (1 + (Math.random() - 0.5) * 0.006);
+    const prix = etat.cachePrix[a.id] || PRIX_REF_ACTIONS[a.id];
     etat.cachePrix[a.id] = prix;
-    return {
-      ...a,
-      prix, variation: (Math.random() - 0.47) * 2.2,
-      icone: '📈', categorie: 'actions',
-    };
+    return { id: a.id, symbole: a.symbole, nom: a.nom, prix, variation: 0, icone: '📈', categorie: 'actions' };
   });
 }
 
 async function chargerHistoAction(id, jours) {
-  const actionDef = SYMBOLES_ACTIONS.find(a => a.id === id);
-  if (!actionDef) return genererHistoSimule(etat.cachePrix[id] || 100, jours);
+  const action = SYMBOLES_ACTIONS.find(a => a.id === id);
+  if (!action) return genererHistoSimule(id, etat.cachePrix[id] || 100, jours);
 
-  if (CLES.finnhub && CLES.finnhub !== 'YOUR_FINNHUB_API_KEY') {
-    try {
-      const maintenant = Math.floor(Date.now() / 1000);
-      const debut      = maintenant - jours * 86400;
-      const res = jours <= 1 ? '60' : jours <= 7 ? 'D' : 'W';
-      const url = `${API.finnhub}/stock/candle?symbol=${actionDef.fh}&resolution=${res}&from=${debut}&to=${maintenant}&token=${CLES.finnhub}`;
-      const data = await fetchCache(url, `fh_candle_${id}_${jours}`, 180000);
+  if (!CLES.twelvedata || CLES.twelvedata === 'YOUR_TWELVEDATA_API_KEY') {
+    return genererHistoSimule(id, etat.cachePrix[id] || PRIX_REF_ACTIONS[id], jours);
+  }
 
-      if (data.s === 'ok' && data.c?.length) {
-        return data.t.map((ts, i) => ({ temps: new Date(ts * 1000), prix: data.c[i] }));
-      }
-    } catch(e) {
-      console.warn('Finnhub candle error:', e.message);
+  try {
+    const interval   = jours <= 1 ? '15min' : jours <= 7 ? '1h' : '1day';
+    const outputsize = jours <= 1 ? 96 : jours <= 7 ? 168 : jours;
+    const url = `${API.twelvedata}/time_series?symbol=${encodeURIComponent(action.td)}&interval=${interval}&outputsize=${outputsize}&apikey=${CLES.twelvedata}`;
+    const data = await fetchCache(url, `td_action_hist_${id}_${jours}`, 180000);
+
+    if (data.status === 'ok' && data.values?.length) {
+      return data.values
+        .reverse()
+        .map(v => ({ temps: new Date(v.datetime), prix: parseFloat(v.close) }));
     }
+    throw new Error(data.message || 'Données invalides');
+  } catch (e) {
+    console.warn('Twelve Data action historique:', e.message);
+    return genererHistoSimule(id, etat.cachePrix[id] || PRIX_REF_ACTIONS[id], jours);
   }
-
-  return genererHistoSimule(etat.cachePrix[id] || 100, jours);
-}
-
-/* =====================================================
-   Historique simulé (fallback)
-   ===================================================== */
-function genererHistoSimule(prixBase, jours, volatilite = 0.025) {
-  const nb = jours <= 1 ? 24 : jours <= 7 ? jours * 8 : jours;
-  const prix = [prixBase];
-  for (let i = 1; i < nb; i++) {
-    prix.push(Math.max(0.001, prix[prix.length - 1] * (1 + (Math.random() - 0.48) * volatilite)));
-  }
-  const pas = (jours * 86400000) / nb;
-  const debut = Date.now() - jours * 86400000;
-  return prix.map((p, i) => ({ temps: new Date(debut + i * pas), prix: p }));
 }
 
 /* =====================================================
@@ -366,10 +388,10 @@ function dessinerGraphique(historique) {
 
   if (etat.graphique) { etat.graphique.destroy(); etat.graphique = null; }
 
-  const prix = historique.map(h => h.prix);
+  const prix      = historique.map(h => h.prix);
   const etiquettes = historique.map(h => h.temps);
-  const enHausse = prix[prix.length - 1] >= prix[0];
-  const c = enHausse ? '#22c55e' : '#ef4444';
+  const enHausse  = prix[prix.length - 1] >= prix[0];
+  const couleur   = enHausse ? '#22c55e' : '#ef4444';
 
   etat.graphique = new Chart(canvas, {
     type: 'line',
@@ -377,7 +399,7 @@ function dessinerGraphique(historique) {
       labels: etiquettes,
       datasets: [{
         data: prix,
-        borderColor: c,
+        borderColor: couleur,
         borderWidth: 2,
         fill: true,
         backgroundColor: ctx => {
@@ -419,20 +441,16 @@ function dessinerGraphique(historique) {
           ticks: {
             maxTicksLimit: 5,
             font: { size: 11, family: "'Inter', sans-serif" },
-            color: '#606060',
-            maxRotation: 0,
+            color: '#606060', maxRotation: 0,
             callback: (_, i) => {
               const d = etiquettes[i];
-              if (!d) return '';
-              return d instanceof Date
-                ? d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
-                : '';
+              if (!d || !(d instanceof Date)) return '';
+              return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
             },
           },
         },
         y: {
-          display: true,
-          position: 'right',
+          display: true, position: 'right',
           grid: { color: 'rgba(255,255,255,0.04)' },
           ticks: {
             maxTicksLimit: 5,
@@ -460,15 +478,10 @@ async function chargerPageMarche(cat = etat.categorieActuelle) {
     b.classList.toggle('actif', b.dataset.cat === cat)
   );
 
-  const placeholders = {
-    crypto: 'Rechercher une crypto',
-    forex:  'Rechercher un change',
-    actions: 'Rechercher une action',
-  };
-  const champsR = document.getElementById('champ-recherche');
-  if (champsR) champsR.placeholder = placeholders[cat] || 'Rechercher';
+  const placeholders = { crypto: 'Rechercher une crypto', forex: 'Rechercher un change', actions: 'Rechercher une action' };
+  const champR = document.getElementById('champ-recherche');
+  if (champR) champR.placeholder = placeholders[cat] || 'Rechercher';
 
-  // Mettre à jour attribution selon la catégorie
   mettreAJourAttribution(cat);
 
   let actifs = [];
@@ -483,17 +496,14 @@ async function chargerPageMarche(cat = etat.categorieActuelle) {
       if (!etat.marches.actions.length) etat.marches.actions = await chargerActions();
       actifs = etat.marches.actions;
     }
-  } catch(e) {
+  } catch (e) {
     console.error('chargerPageMarche:', e);
     notif('Erreur de chargement des données', 'erreur');
   }
 
-  const recherche = champsR?.value.trim().toLowerCase() || '';
-  const filtres = recherche
-    ? actifs.filter(a =>
-        a.symbole.toLowerCase().includes(recherche) ||
-        a.nom.toLowerCase().includes(recherche)
-      )
+  const recherche = champR?.value.trim().toLowerCase() || '';
+  const filtres   = recherche
+    ? actifs.filter(a => a.symbole.toLowerCase().includes(recherche) || a.nom.toLowerCase().includes(recherche))
     : actifs;
 
   if (filtres.length && (!etat.actifSelectionne || etat.actifSelectionne.categorie !== cat)) {
@@ -511,17 +521,13 @@ function mettreAJourAttribution(cat) {
 
   if (cat === 'crypto') {
     lien.href = 'https://www.coingecko.com';
-    img.src = 'https://static.coingecko.com/s/coingecko-logo-d13d6bcceddbb003f146b33c2f7e8193d72b93bb02229aa0c83734f2fb6a56bb.png';
+    img.src   = 'https://static.coingecko.com/s/coingecko-logo-d13d6bcceddbb003f146b33c2f7e8193d72b93bb02229aa0c83734f2fb6a56bb.png';
     img.style.display = '';
     texte.textContent = 'Données fournies par CoinGecko';
-  } else if (cat === 'forex') {
-    lien.href = 'https://www.exchangerate-api.com';
-    img.style.display = 'none';
-    texte.textContent = 'Données Forex par ExchangeRate-API';
   } else {
-    lien.href = 'https://finnhub.io';
+    lien.href = 'https://twelvedata.com';
     img.style.display = 'none';
-    texte.textContent = 'Données Actions par Finnhub';
+    texte.textContent = cat === 'forex' ? 'Données Forex par Twelve Data' : 'Données Actions par Twelve Data';
   }
 }
 
@@ -531,12 +537,11 @@ function afficherListeActifs(actifs) {
     liste.innerHTML = `<div class="etat-vide">Aucun résultat</div>`;
     return;
   }
-
   liste.innerHTML = actifs.map(a => {
     const iconeHtml = typeof a.icone === 'string' && a.icone.startsWith('http')
       ? `<img src="${a.icone}" alt="${a.nom}" loading="lazy">`
       : a.icone;
-    const dec = a.categorie === 'crypto' ? decCryptos(a.prix) : 4;
+    const dec = decPrix(a.prix);
     const sel = etat.actifSelectionne?.id === a.id ? 'selectionne' : '';
     return `
       <div class="element-actif ${sel}" data-id="${a.id}">
@@ -552,22 +557,22 @@ function afficherListeActifs(actifs) {
       </div>`;
   }).join('');
 
-  liste.querySelectorAll('.element-actif').forEach(el => {
+  liste.querySelectorAll('.element-actif').forEach(el =>
     el.addEventListener('click', () => {
       const actif = actifs.find(a => a.id === el.dataset.id);
       if (actif) selectionnerActif(actif);
-    });
-  });
+    })
+  );
 }
 
 async function selectionnerActif(actif, auto = false) {
   etat.actifSelectionne = actif;
   const prix = actif.prix || etat.cachePrix[actif.id] || 0;
-  const dec = actif.categorie === 'crypto' ? decCryptos(prix) : 4;
+  const dec  = decPrix(prix);
 
-  document.getElementById('nom-actif').textContent = actif.symbole;
+  document.getElementById('nom-actif').textContent        = actif.symbole;
   document.getElementById('nom-complet-actif').textContent = actif.nom;
-  document.getElementById('prix-actif').textContent = fmt$(prix, dec);
+  document.getElementById('prix-actif').textContent       = fmt$(prix, dec);
 
   const elVar = document.getElementById('variation-actif');
   elVar.textContent = fmtPct(actif.variation);
@@ -582,7 +587,6 @@ async function selectionnerActif(actif, auto = false) {
 
 async function chargerEtDessiner(actif, jours) {
   etat.periodeActuelle = jours;
-
   document.querySelectorAll('.btn-periode').forEach(b =>
     b.classList.toggle('actif', +b.dataset.jours === jours)
   );
@@ -601,10 +605,11 @@ async function chargerEtDessiner(actif, jours) {
     }
     elLoad?.classList.add('cache');
     dessinerGraphique(historique);
-  } catch(e) {
+  } catch (e) {
     elLoad?.classList.add('cache');
-    const fallback = genererHistoSimule(etat.cachePrix[actif.id] || 100, jours);
-    dessinerGraphique(fallback);
+    // Fallback déterministe : même graphique à chaque clic pour cet actif
+    const px = etat.cachePrix[actif.id] || actif.prix || 100;
+    dessinerGraphique(genererHistoSimule(actif.id, px, jours));
   }
 }
 
@@ -616,33 +621,29 @@ function ouvrirFormOrdre(type) {
   etat.typeOrdre = type;
 
   const actif = etat.actifSelectionne;
-  const prix = actif.prix || etat.cachePrix[actif.id] || 0;
-  const dec = actif.categorie === 'crypto' ? decCryptos(prix) : 4;
+  const prix  = actif.prix || etat.cachePrix[actif.id] || 0;
+  const dec   = decPrix(prix);
 
   const tag = document.getElementById('modale-tag-type');
-  if (tag) { tag.textContent = type === 'achat' ? 'ACHAT' : 'VENTE'; }
+  if (tag) tag.textContent = type === 'achat' ? 'ACHAT' : 'VENTE';
 
-  document.getElementById('titre-modale-ordre').textContent = type === 'achat' ? 'Acheter' : 'Vendre';
-  document.getElementById('ordre-actif-nom').textContent  = actif.symbole;
-  document.getElementById('ordre-actif-prix').textContent = fmt$(prix, dec);
-  document.getElementById('solde-disponible').textContent = fmt$(etat.solde);
-  document.getElementById('montant-ordre').value = '';
-  document.getElementById('quantite-estimee').textContent = '—';
+  document.getElementById('titre-modale-ordre').textContent  = type === 'achat' ? 'Acheter' : 'Vendre';
+  document.getElementById('ordre-actif-nom').textContent     = actif.symbole;
+  document.getElementById('ordre-actif-prix').textContent    = fmt$(prix, dec);
+  document.getElementById('solde-disponible').textContent    = fmt$(etat.solde);
+  document.getElementById('montant-ordre').value             = '';
+  document.getElementById('quantite-estimee').textContent    = '—';
 
   ouvrirModale('modale-ordre');
 }
 
 function mettreAJourQuantite() {
-  const actif = etat.actifSelectionne;
+  const actif  = etat.actifSelectionne;
   if (!actif) return;
-  const prix = actif.prix || etat.cachePrix[actif.id] || 0;
+  const prix   = actif.prix || etat.cachePrix[actif.id] || 0;
   const montant = parseFloat(document.getElementById('montant-ordre').value);
-  if (!montant || !prix) {
-    document.getElementById('quantite-estimee').textContent = '—';
-    return;
-  }
   document.getElementById('quantite-estimee').textContent =
-    fmtQte(montant / prix) + ' ' + actif.symbole;
+    (!montant || !prix) ? '—' : fmtQte(montant / prix) + ' ' + actif.symbole;
 }
 
 function confirmerOrdre() {
@@ -653,25 +654,20 @@ function confirmerOrdre() {
   if (!montant || montant <= 0) return notif('Montant invalide', 'erreur');
 
   const prix = actif.prix || etat.cachePrix[actif.id];
-  if (!prix) return notif('Prix indisponible', 'erreur');
+  if (!prix)  return notif('Prix indisponible', 'erreur');
 
-  const quantite  = montant / prix;
+  const quantite   = montant / prix;
   const commission = montant * COMMISSION;
 
   if (etat.typeOrdre === 'achat') {
-    const cout = montant + commission;
-    if (cout > etat.solde) return notif('Solde insuffisant', 'erreur');
-
-    etat.solde -= cout;
+    if (montant + commission > etat.solde) return notif('Solde insuffisant', 'erreur');
+    etat.solde -= montant + commission;
     etat.positions.push({
       id: actif.id, symbole: actif.symbole, nom: actif.nom, icone: actif.icone,
       sens: 'achat', quantite, prixEntree: prix, montant,
       horodatage: Date.now(), categorie: actif.categorie,
     });
-    etat.historique.push({
-      id: actif.id, symbole: actif.symbole, type: 'achat',
-      montant, prix, quantite, horodatage: Date.now(), pnl: null,
-    });
+    etat.historique.push({ id: actif.id, symbole: actif.symbole, type: 'achat', montant, prix, quantite, horodatage: Date.now(), pnl: null });
     notif(`Achat de ${fmtQte(quantite)} ${actif.symbole}`, 'succes');
 
   } else {
@@ -685,13 +681,9 @@ function confirmerOrdre() {
 
     etat.solde += valeur - comm2;
     pos.quantite -= qtVente;
-    if (pos.quantite < 0.000001) {
-      etat.positions = etat.positions.filter(p => p !== pos);
-    }
-    etat.historique.push({
-      id: actif.id, symbole: actif.symbole, type: 'vente',
-      montant: valeur, prix, quantite: qtVente, horodatage: Date.now(), pnl,
-    });
+    if (pos.quantite < 0.000001) etat.positions = etat.positions.filter(p => p !== pos);
+
+    etat.historique.push({ id: actif.id, symbole: actif.symbole, type: 'vente', montant: valeur, prix, quantite: qtVente, horodatage: Date.now(), pnl });
     notif(`Vente — P&L : ${pnl >= 0 ? '+' : ''}${fmt$(pnl)}`, pnl >= 0 ? 'succes' : 'erreur');
   }
 
@@ -720,34 +712,28 @@ function afficherTransactions() {
       <div class="entete-transactions">
         <span>Quantité</span><span>Actif</span><span>Entrée</span><span></span>
       </div>
-      ${etat.positions.map((pos, i) => {
-        const dec = pos.categorie === 'crypto' ? decCryptos(pos.prixEntree) : 4;
-        return `
-          <div class="element-transaction" data-index="${i}">
-            <span class="qt-transaction">${fmtQte(pos.quantite)}</span>
-            <span class="symbole-transaction">${pos.symbole}</span>
-            <span class="prix-transaction">${fmt$(pos.prixEntree, dec)}</span>
-            <button class="bouton-fermer-pos" data-index="${i}">Fermer</button>
-          </div>`;
-      }).join('')}`;
+      ${etat.positions.map((pos, i) => `
+        <div class="element-transaction">
+          <span class="qt-transaction">${fmtQte(pos.quantite)}</span>
+          <span class="symbole-transaction">${pos.symbole}</span>
+          <span class="prix-transaction">${fmt$(pos.prixEntree, decPrix(pos.prixEntree))}</span>
+          <button class="bouton-fermer-pos" data-index="${i}">Fermer</button>
+        </div>`).join('')}`;
 
-    liste.querySelectorAll('.bouton-fermer-pos').forEach(btn => {
-      btn.addEventListener('click', () => ouvrirModaleFermeture(+btn.dataset.index));
-    });
+    liste.querySelectorAll('.bouton-fermer-pos').forEach(btn =>
+      btn.addEventListener('click', () => ouvrirModaleFermeture(+btn.dataset.index))
+    );
   }
 
   // Historique
-  const hist = document.getElementById('liste-historique');
+  const hist    = document.getElementById('liste-historique');
   const entrees = [...etat.historique].reverse().slice(0, 30);
   if (!entrees.length) {
     hist.innerHTML = `<div class="etat-vide">Aucune transaction</div>`;
   } else {
     hist.innerHTML = entrees.map(h => {
-      const dec = h.prix < 1 ? 4 : 2;
       const pnlHtml = h.pnl != null
-        ? `<div class="historique-pnl" style="color:${h.pnl >= 0 ? 'var(--vert)' : 'var(--rouge)'}">
-             P&L : ${h.pnl >= 0 ? '+' : ''}${fmt$(h.pnl)}
-           </div>`
+        ? `<div class="historique-pnl" style="color:${h.pnl >= 0 ? 'var(--vert)' : 'var(--rouge)'}">P&L : ${h.pnl >= 0 ? '+' : ''}${fmt$(h.pnl)}</div>`
         : '';
       return `
         <div class="element-historique">
@@ -771,13 +757,12 @@ function ouvrirModaleFermeture(index) {
   etat.indexFermeture = index;
 
   const prixActuel = etat.cachePrix[pos.id] || pos.prixEntree;
-  const pnl = (prixActuel - pos.prixEntree) * pos.quantite;
-  const dec = prixActuel < 1 ? 4 : 2;
+  const pnl        = (prixActuel - pos.prixEntree) * pos.quantite;
 
   document.getElementById('fp-actif').textContent    = pos.symbole;
   document.getElementById('fp-quantite').textContent = fmtQte(pos.quantite);
-  document.getElementById('fp-entree').textContent   = fmt$(pos.prixEntree, dec);
-  document.getElementById('fp-actuel').textContent   = fmt$(prixActuel, dec);
+  document.getElementById('fp-entree').textContent   = fmt$(pos.prixEntree, decPrix(pos.prixEntree));
+  document.getElementById('fp-actuel').textContent   = fmt$(prixActuel, decPrix(prixActuel));
 
   const elPnl = document.getElementById('fp-pnl');
   elPnl.textContent = (pnl >= 0 ? '+' : '') + fmt$(pnl);
@@ -811,25 +796,20 @@ function executerFermeture() {
 }
 
 /* =====================================================
-   Page Wallet — CALCUL DU BÉNÉFICE CORRIGÉ
-   
-   Logique :
-     - bénéfice = solde_actuel_total - solde_initial
-     - solde_actuel_total = solde_liquide + valeur_mark_to_market_des_positions
-     - Exemple : initial 1000$, solde 995$, bénéfice = -5$
-                 puis on gagne 6$, solde 1001$, bénéfice = +1$
+   Page Wallet
+   Bénéfice = (solde liquide + valeur mark-to-market) - capital initial
+   Ex: départ 1000$ → achat → 995$ solde, 10$ en position = -5$ bénéfice
+       prix monte → position vaut 16$ → 1001$ total → +1$ bénéfice ✓
    ===================================================== */
 function afficherWallet() {
-  // Valeur mark-to-market des positions ouvertes
   const valeurPositions = etat.positions.reduce((total, pos) => {
-    const prixActuel = etat.cachePrix[pos.id] || pos.prixEntree;
-    return total + prixActuel * pos.quantite;
+    return total + (etat.cachePrix[pos.id] || pos.prixEntree) * pos.quantite;
   }, 0);
 
   const soldeTotal = etat.solde + valeurPositions;
   const benefice   = soldeTotal - etat.soldeInitial;
 
-  document.getElementById('wallet-solde').textContent = fmt$(etat.solde);
+  document.getElementById('wallet-solde').textContent   = fmt$(etat.solde);
   document.getElementById('wallet-initial').textContent = fmt$(etat.soldeInitial);
 
   const elBen = document.getElementById('wallet-benefice');
@@ -844,11 +824,10 @@ function afficherWallet() {
 
   const lignes = etat.positions.map(pos => {
     const prixActuel = etat.cachePrix[pos.id] || pos.prixEntree;
-    const dec = pos.categorie === 'crypto' ? decCryptos(prixActuel) : 4;
     return `<div class="ligne-monnaie">
       <span class="qt-monnaie">${fmtQte(pos.quantite)}</span>
       <span class="nom-monnaie">${pos.symbole}</span>
-      <span class="prix-monnaie">${fmt$(prixActuel, dec)}</span>
+      <span class="prix-monnaie">${fmt$(prixActuel, decPrix(prixActuel))}</span>
     </div>`;
   }).join('');
 
@@ -883,29 +862,27 @@ function appliquerConfig() {
    ===================================================== */
 async function rafraichirPrix() {
   try {
-    // Force la mise à jour des marchés actifs
+    let liste = [];
     if (etat.categorieActuelle === 'crypto') {
-      const nouveauxCryptos = await chargerCryptos();
-      etat.marches.crypto = nouveauxCryptos;
-      nouveauxCryptos.forEach(c => { etat.cachePrix[c.id] = c.prix; });
+      liste = await chargerCryptos();
+      etat.marches.crypto = liste;
     } else if (etat.categorieActuelle === 'forex') {
-      const nouveauxForex = await chargerForex();
-      etat.marches.forex = nouveauxForex;
+      liste = await chargerForex();
+      etat.marches.forex = liste;
     } else {
-      const nouvellesActions = await chargerActions();
-      etat.marches.actions = nouvellesActions;
+      liste = await chargerActions();
+      etat.marches.actions = liste;
     }
 
-    // Mise à jour du prix affiché si une crypto est sélectionnée
+    liste.forEach(a => { etat.cachePrix[a.id] = a.prix; });
+
+    // Mettre à jour l'actif affiché
     if (etat.actifSelectionne) {
-      const actif = etat.actifSelectionne;
-      const liste = etat.marches[actif.categorie] || [];
-      const maj = liste.find(a => a.id === actif.id);
+      const maj = liste.find(a => a.id === etat.actifSelectionne.id);
       if (maj) {
-        actif.prix = maj.prix;
-        actif.variation = maj.variation;
-        etat.cachePrix[actif.id] = maj.prix;
-        const dec = actif.categorie === 'crypto' ? decCryptos(maj.prix) : 4;
+        etat.actifSelectionne.prix      = maj.prix;
+        etat.actifSelectionne.variation = maj.variation;
+        const dec = decPrix(maj.prix);
         document.getElementById('prix-actif').textContent = fmt$(maj.prix, dec);
         const elVar = document.getElementById('variation-actif');
         elVar.textContent = fmtPct(maj.variation);
@@ -913,13 +890,13 @@ async function rafraichirPrix() {
       }
     }
 
-    // Horodatage de mise à jour
+    // Horodatage
     const el = document.getElementById('indicateur-maj');
     if (el) {
       const h = new Date();
-      el.textContent = `MAJ ${h.getHours().toString().padStart(2,'0')}:${h.getMinutes().toString().padStart(2,'0')}`;
+      el.textContent = `MAJ ${h.getHours().toString().padStart(2, '0')}:${h.getMinutes().toString().padStart(2, '0')}`;
     }
-  } catch(_) {}
+  } catch (_) {}
 }
 
 /* =====================================================
@@ -928,16 +905,12 @@ async function rafraichirPrix() {
 function afficherGuideInstallation(msg) {
   document.getElementById('bulle-installation')?.remove();
   const bulle = document.createElement('div');
-  bulle.className = 'bulle-installation';
   bulle.id = 'bulle-installation';
-  bulle.innerHTML = `
-    <div class="fleche-bulle"></div>
-    <p>${msg}</p>
-    <button onclick="document.getElementById('bulle-installation').remove()">Compris</button>`;
+  bulle.innerHTML = `<div class="fleche-bulle"></div><p>${msg}</p><button onclick="document.getElementById('bulle-installation').remove()">Compris</button>`;
   document.getElementById('groupe-boutons-haut')?.appendChild(bulle);
   setTimeout(() => {
-    document.addEventListener('click', function fermeur(e) {
-      if (!bulle.contains(e.target)) { bulle.remove(); document.removeEventListener('click', fermeur); }
+    document.addEventListener('click', function f(e) {
+      if (!bulle.contains(e.target)) { bulle.remove(); document.removeEventListener('click', f); }
     });
   }, 100);
 }
@@ -947,16 +920,13 @@ function configurerPWA() {
     e.preventDefault();
     etat.promptInstallation = e;
     if (!localStorage.getItem('install-ignore')) {
-      setTimeout(() => {
-        document.getElementById('banniere-installation')?.classList.remove('cache');
-      }, 4000);
+      setTimeout(() => document.getElementById('banniere-installation')?.classList.remove('cache'), 4000);
     }
   });
 
   async function lancerInstallation() {
     if (navigator.standalone || window.matchMedia('(display-mode: standalone)').matches) {
-      notif('Application déjà installée', 'info');
-      return;
+      return notif('Application déjà installée', 'info');
     }
     if (etat.promptInstallation) {
       etat.promptInstallation.prompt();
@@ -966,19 +936,16 @@ function configurerPWA() {
       document.getElementById('banniere-installation')?.classList.add('cache');
     } else {
       const ua = navigator.userAgent;
-      let msg = 'Ouvrez le menu du navigateur → "Installer"';
-      if (/Safari/.test(ua) && !/Chrome/.test(ua))
-        msg = 'Sur Safari : bouton Partager ↑ → "Sur l\'écran d\'accueil"';
-      else if (/Chrome/.test(ua))
-        msg = 'Sur Chrome : menu ⋮ → "Ajouter à l\'écran d\'accueil"';
-      else if (/Firefox/.test(ua))
-        msg = 'Sur Firefox : menu ⋮ → "Installer"';
+      let msg  = 'Ouvrez le menu du navigateur → "Installer"';
+      if (/Safari/.test(ua) && !/Chrome/.test(ua)) msg = 'Sur Safari : bouton Partager ↑ → "Sur l\'écran d\'accueil"';
+      else if (/Chrome/.test(ua)) msg = 'Sur Chrome : menu ⋮ → "Ajouter à l\'écran d\'accueil"';
+      else if (/Firefox/.test(ua)) msg = 'Sur Firefox : menu ⋮ → "Installer"';
       afficherGuideInstallation(msg);
     }
   }
 
   document.getElementById('bouton-telecharger')?.addEventListener('click', lancerInstallation);
-  document.getElementById('bouton-installer')?.addEventListener('click', lancerInstallation);
+  document.getElementById('bouton-installer')?.addEventListener('click',   lancerInstallation);
   document.getElementById('bouton-ignorer')?.addEventListener('click', () => {
     document.getElementById('banniere-installation')?.classList.add('cache');
     localStorage.setItem('install-ignore', '1');
@@ -993,15 +960,14 @@ function enregistrerSW() {
     navigator.serviceWorker.register('./sw.js', { scope: './' })
       .then(reg => {
         reg.addEventListener('updatefound', () => {
-          const newSW = reg.installing;
-          newSW?.addEventListener('statechange', () => {
-            if (newSW.state === 'installed' && navigator.serviceWorker.controller) {
-              newSW.postMessage({ type: 'SKIP_WAITING' });
+          reg.installing?.addEventListener('statechange', function () {
+            if (this.state === 'installed' && navigator.serviceWorker.controller) {
+              this.postMessage({ type: 'SKIP_WAITING' });
             }
           });
         });
       })
-      .catch(err => console.warn('SW registration failed:', err));
+      .catch(e => console.warn('SW:', e));
   }
 }
 
@@ -1009,52 +975,40 @@ function enregistrerSW() {
    Événements
    ===================================================== */
 function configurerEvenements() {
-  // Navigation
   document.querySelectorAll('.btn-nav').forEach(btn =>
     btn.addEventListener('click', () => allerVers(btn.dataset.page))
   );
-
-  // Onglets marché
   document.querySelectorAll('.onglet').forEach(btn =>
     btn.addEventListener('click', () => chargerPageMarche(btn.dataset.cat))
   );
 
-  // Recherche
   let timerRecherche;
   document.getElementById('champ-recherche')?.addEventListener('input', () => {
     clearTimeout(timerRecherche);
     timerRecherche = setTimeout(() => chargerPageMarche(etat.categorieActuelle), 300);
   });
 
-  // Boutons période
-  document.querySelectorAll('.btn-periode').forEach(btn => {
+  document.querySelectorAll('.btn-periode').forEach(btn =>
     btn.addEventListener('click', () => {
       if (etat.actifSelectionne) chargerEtDessiner(etat.actifSelectionne, +btn.dataset.jours);
-    });
-  });
+    })
+  );
 
-  // Acheter / Vendre
   document.getElementById('bouton-acheter')?.addEventListener('click', () => ouvrirFormOrdre('achat'));
   document.getElementById('bouton-vendre')?.addEventListener('click',  () => ouvrirFormOrdre('vente'));
 
-  // Montant ordre
   document.getElementById('montant-ordre')?.addEventListener('input', mettreAJourQuantite);
   document.querySelectorAll('.btn-rapide').forEach(btn =>
     btn.addEventListener('click', () => {
-      document.getElementById('montant-ordre').value =
-        (etat.solde * (+btn.dataset.pct / 100)).toFixed(2);
+      document.getElementById('montant-ordre').value = (etat.solde * (+btn.dataset.pct / 100)).toFixed(2);
       mettreAJourQuantite();
     })
   );
 
-  // Confirmer ordre
   document.getElementById('bouton-confirmer-ordre')?.addEventListener('click', confirmerOrdre);
-
-  // Fermer position
   document.getElementById('bouton-executer-fermeture')?.addEventListener('click', executerFermeture);
 
-  // Config solde
-  document.getElementById('bouton-config')?.addEventListener('click', () => ouvrirModale('modale-config'));
+  document.getElementById('bouton-config')?.addEventListener('click',        () => ouvrirModale('modale-config'));
   document.getElementById('bouton-ouvrir-config')?.addEventListener('click', () => ouvrirModale('modale-config'));
   document.getElementById('bouton-appliquer')?.addEventListener('click', appliquerConfig);
   document.querySelectorAll('.btn-preset').forEach(btn =>
@@ -1064,7 +1018,6 @@ function configurerEvenements() {
     })
   );
 
-  // Fermeture modales
   document.querySelectorAll('.modale-fermer, [data-modale]').forEach(el =>
     el.addEventListener('click', () => { if (el.dataset.modale) fermerModale(el.dataset.modale); })
   );
@@ -1088,14 +1041,12 @@ async function demarrer() {
     setTimeout(async () => {
       ecran && (ecran.style.display = 'none');
       document.getElementById('application')?.classList.remove('cache');
-
       mettreAJourBadgePositions();
       await chargerPageMarche('crypto');
     }, 350);
   }, 1000);
 
-  // Rafraîchissement toutes les 30 secondes
-  etat.intervalMaj = setInterval(rafraichirPrix, 30000);
+  setInterval(rafraichirPrix, 30000);
 }
 
 document.addEventListener('DOMContentLoaded', demarrer);
