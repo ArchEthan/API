@@ -1,4 +1,4 @@
-# API de trading
+# AlphaTrade
 
 ### Crypto:
 -CoinGecko API --> https://brand.coingecko.com/resources/attribution-guide
