@@ -1,9 +1,9 @@
 # API de trading
 
-## Crypto:
+### Crypto:
 -CoinGecko API --> https://brand.coingecko.com/resources/attribution-guide
 
-## Forex et Actions:
+### Forex et Actions:
 Twelvedata --> https://twelvedata.com 
 
 
