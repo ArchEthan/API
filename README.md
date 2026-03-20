@@ -52,6 +52,7 @@ L’utilisation du site se fait sous la seule responsabilité de l’utilisateur
 ### Éditeur du site
 
 Éditeur : Responsable du site
+
 Statut : Projet personnel non commercial
 
 L’éditeur peut être contacté via les fonctionnalités du site.
